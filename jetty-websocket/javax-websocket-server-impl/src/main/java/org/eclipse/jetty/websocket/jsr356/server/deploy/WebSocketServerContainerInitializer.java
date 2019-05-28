@@ -20,7 +20,7 @@ package org.eclipse.jetty.websocket.jsr356.server.deploy;
 
 import java.util.HashSet;
 import java.util.Set;
-
+import java.util.function.BiConsumer;
 import javax.servlet.ServletContainerInitializer;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletContextEvent;
@@ -34,8 +34,10 @@ import javax.websocket.server.ServerEndpoint;
 import javax.websocket.server.ServerEndpointConfig;
 
 import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.listener.SCIOnStartupListener;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -53,7 +55,8 @@ public class WebSocketServerContainerInitializer implements ServletContainerInit
     public static final String ADD_DYNAMIC_FILTER_KEY = "org.eclipse.jetty.websocket.jsr356.addDynamicFilter";
     private static final Logger LOG = Log.getLogger(WebSocketServerContainerInitializer.class);
     public static final String HTTPCLIENT_ATTRIBUTE = "org.eclipse.jetty.websocket.jsr356.HttpClient";
-    
+    public static final String ATTR_JAVAX_SERVER_CONTAINER = javax.websocket.server.ServerContainer.class.getName();
+
     /**
      * DestroyListener
      */
@@ -129,54 +132,117 @@ public class WebSocketServerContainerInitializer implements ServletContainerInit
     
         return defValue;
     }
-    
+
     /**
-     * Embedded Jetty approach for non-bytecode scanning.
-     * @param context the {@link ServletContextHandler} to use
-     * @return a configured {@link ServerContainer} instance
-     * @throws ServletException if the {@link WebSocketUpgradeFilter} cannot be configured
+     * Initialize the {@link ServletContext} with the default (and empty) {@link ServerContainer}
+     *
+     * @param context the context to work with
      */
-    public static ServerContainer configureContext(ServletContextHandler context) throws ServletException
+    public static void initialize(ServletContext context) throws ServletException
     {
         // Create Basic components
-        NativeWebSocketConfiguration nativeWebSocketConfiguration = NativeWebSocketServletContainerInitializer.getDefaultFrom(context.getServletContext());
-        
-        // Build HttpClient
-        HttpClient httpClient = (HttpClient) context.getServletContext().getAttribute(HTTPCLIENT_ATTRIBUTE);
-        if ((httpClient == null) && (context.getServer() != null))
+        NativeWebSocketServletContainerInitializer.initialize(context);
+        NativeWebSocketConfiguration nativeWebSocketConfiguration = (NativeWebSocketConfiguration)context.getAttribute(NativeWebSocketServletContainerInitializer.ATTR_KEY);
+
+        ContextHandler contextHandler = null;
+        // Attach default configuration to context lifecycle
+        if (context instanceof ContextHandler.Context)
         {
-            httpClient = (HttpClient) context.getServer().getAttribute(HTTPCLIENT_ATTRIBUTE);
+            contextHandler = ((ContextHandler.Context)context).getContextHandler();
         }
-        
-        // Create the Jetty ServerContainer implementation
-        ServerContainer jettyContainer = new ServerContainer(nativeWebSocketConfiguration, httpClient);
-        context.addBean(jettyContainer);
-        
-        // Store a reference to the ServerContainer per javax.websocket spec 1.0 final section 6.4 Programmatic Server Deployment
-        context.setAttribute(javax.websocket.server.ServerContainer.class.getName(),jettyContainer);
-    
-        // Create Filter
-        if(isEnabledViaContext(context.getServletContext(), ADD_DYNAMIC_FILTER_KEY, true))
+
+        // Obtain HttpClient
+        HttpClient httpClient = (HttpClient)context.getAttribute(HTTPCLIENT_ATTRIBUTE);
+        if ((httpClient == null) && (contextHandler != null))
         {
-            String instanceKey = WebSocketUpgradeFilter.class.getName() + ".SCI";
-            if(context.getAttribute(instanceKey) == null)
+            Server server = contextHandler.getServer();
+            if (server != null)
             {
-                if (LOG.isDebugEnabled())
-                    LOG.debug("Dynamic filter add to support JSR356/javax.websocket.server: {}", WebSocketUpgradeFilter.class.getName());
-                WebSocketUpgradeFilter wsuf = WebSocketUpgradeFilter.configureContext(context);
-                context.setAttribute(instanceKey, wsuf);
+                httpClient = (HttpClient)server.getAttribute(HTTPCLIENT_ATTRIBUTE);
             }
         }
-    
-        return jettyContainer;
+
+        // Create the Jetty ServerContainer implementation
+        ServerContainer jettyContainer = new ServerContainer(nativeWebSocketConfiguration, httpClient);
+        contextHandler.addBean(jettyContainer);
+
+        // Store a reference to the ServerContainer per javax.websocket spec 1.0 final section 6.4 Programmatic Server Deployment
+        context.setAttribute(javax.websocket.server.ServerContainer.class.getName(),jettyContainer);
+
+        if(contextHandler instanceof ServletContextHandler)
+        {
+            ServletContextHandler servletContextHandler = (ServletContextHandler)contextHandler;
+            // Create Filter
+            if(isEnabledViaContext(context, ADD_DYNAMIC_FILTER_KEY, true))
+            {
+                String instanceKey = WebSocketUpgradeFilter.class.getName() + ".SCI";
+                if(context.getAttribute(instanceKey) == null)
+                {
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Dynamic filter add to support JSR356/javax.websocket.server: {}", WebSocketUpgradeFilter.class.getName());
+                    WebSocketUpgradeFilter wsuf = WebSocketUpgradeFilter.configureContext(servletContextHandler);
+                    context.setAttribute(instanceKey, wsuf);
+                }
+            }
+        }
+    }
+
+    /**
+     * Configure the {@link ServletContextHandler} to call {@link WebSocketServerContainerInitializer}
+     * during the {@link ServletContext} initialization phase.
+     *
+     * @param context the context to add listener to
+     */
+    public static void configure(ServletContextHandler context)
+    {
+        context.addEventListener(new SCIOnStartupListener(new WebSocketServerContainerInitializer()));
+    }
+
+    /**
+     * Configure the {@link ServletContextHandler} to call {@link WebSocketServerContainerInitializer}
+     * during the {@link ServletContext} initialization phase.
+     *
+     * @param context the context to add listener to
+     * @param configurator the lambda that is called to allow the {@link ServerContainer} to
+     * be configured during the {@link ServletContext} initialization phase
+     */
+    public static void configure(ServletContextHandler context, BiConsumer<ServletContext, ServerContainer> configurator)
+    {
+        context.addEventListener(new SCIOnStartupListener(new WebSocketServerContainerInitializer())
+        {
+            @Override
+            public void contextInitialized(ServletContextEvent sce)
+            {
+                super.contextInitialized(sce);
+                ServletContext servletContext = sce.getServletContext();
+                ServerContainer serverContainer = (ServerContainer)servletContext.getAttribute(ATTR_JAVAX_SERVER_CONTAINER);
+                configurator.accept(servletContext, serverContainer);
+            }
+        });
     }
     
     /**
-     * @deprecated use {@link #configureContext(ServletContextHandler)} instead
+     * @param context the {@link ServletContextHandler} to use
+     * @return a configured {@link ServerContainer} instance
+     * @throws ServletException if the {@link WebSocketUpgradeFilter} cannot be configured
+     * @deprecated use {@link #configure(ServletContextHandler, BiConsumer)} instead
+     * @see #configure(ServletContextHandler, BiConsumer)
+     */
+    @Deprecated
+    public static ServerContainer configureContext(ServletContextHandler context) throws ServletException
+    {
+        ServletContext servletContext = context.getServletContext();
+        initialize(servletContext);
+        return (ServerContainer)servletContext.getAttribute(ATTR_JAVAX_SERVER_CONTAINER);
+    }
+    
+    /**
      * @param context not used
      * @param jettyContext the {@link ServletContextHandler} to use
      * @return a configured {@link ServerContainer} instance
      * @throws ServletException if the {@link WebSocketUpgradeFilter} cannot be configured
+     * @deprecated use {@link #configure(ServletContextHandler, BiConsumer)} instead
+     * @see #configure(ServletContextHandler, BiConsumer)
      */
     @Deprecated
     public static ServerContainer configureContext(ServletContext context, ServletContextHandler jettyContext) throws ServletException
@@ -205,12 +271,11 @@ public class WebSocketServerContainerInitializer implements ServletContainerInit
             throw new ServletException("Not running in Jetty ServletContextHandler, JSR-356 support unavailable");
         }
 
-        ServletContextHandler jettyContext = (ServletContextHandler)handler;
-
         try(ThreadClassLoaderScope scope = new ThreadClassLoaderScope(context.getClassLoader()))
         {
             // Create the Jetty ServerContainer implementation
-            ServerContainer jettyContainer = configureContext(jettyContext);
+            initialize(context);
+            ServerContainer jettyContainer = (ServerContainer)context.getAttribute(ATTR_JAVAX_SERVER_CONTAINER);
     
             context.addListener(new ContextDestroyListener()); // make sure context is cleaned up when the context stops
     
