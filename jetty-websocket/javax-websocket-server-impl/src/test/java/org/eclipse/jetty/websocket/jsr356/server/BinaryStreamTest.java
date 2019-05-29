@@ -28,7 +28,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.websocket.ClientEndpoint;
 import javax.websocket.ContainerProvider;
-import javax.websocket.DeploymentException;
 import javax.websocket.OnMessage;
 import javax.websocket.Session;
 import javax.websocket.WebSocketContainer;
@@ -64,15 +63,8 @@ public class BinaryStreamTest
         ServletContextHandler context = new ServletContextHandler(server, "/", true, false);
         WebSocketServerContainerInitializer.configure(context, (servletContext, container) ->
         {
-            try
-            {
-                ServerEndpointConfig config = ServerEndpointConfig.Builder.create(ServerBinaryStreamer.class, PATH).build();
-                container.addEndpoint(config);
-            }
-            catch (DeploymentException e)
-            {
-                throw new RuntimeException(e);
-            }
+            ServerEndpointConfig config = ServerEndpointConfig.Builder.create(ServerBinaryStreamer.class, PATH).build();
+            container.addEndpoint(config);
         });
 
         server.start();

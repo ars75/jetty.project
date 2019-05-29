@@ -19,18 +19,21 @@
 package org.eclipse.jetty.websocket.server;
 
 import java.util.Set;
-import java.util.function.BiConsumer;
 import javax.servlet.ServletContainerInitializer;
 import javax.servlet.ServletContext;
-import javax.servlet.ServletContextEvent;
 
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
-import org.eclipse.jetty.servlet.listener.SCIOnStartupListener;
+import org.eclipse.jetty.servlet.listener.ContainerInitializer;
 
 public class NativeWebSocketServletContainerInitializer implements ServletContainerInitializer
 {
     public static final String ATTR_KEY = NativeWebSocketConfiguration.class.getName();
+
+    public interface Configurator
+    {
+        void accept(ServletContext servletContext, NativeWebSocketConfiguration nativeWebSocketConfiguration);
+    }
 
     /**
      * Initialize the ServletContext with the default (and empty) {@link NativeWebSocketConfiguration}
@@ -64,7 +67,7 @@ public class NativeWebSocketServletContainerInitializer implements ServletContai
      */
     public static void configure(ServletContextHandler context)
     {
-        context.addEventListener(new SCIOnStartupListener(new NativeWebSocketServletContainerInitializer()));
+        context.addEventListener(ContainerInitializer.asContextListener(new NativeWebSocketServletContainerInitializer()));
     }
 
     /**
@@ -75,20 +78,16 @@ public class NativeWebSocketServletContainerInitializer implements ServletContai
      * @param configurator a lambda that is called to allow the {@link NativeWebSocketConfiguration} to
      * be configured during {@link ServletContext} initialization phase
      */
-    public static void configure(ServletContextHandler context,
-                                        BiConsumer<ServletContext, NativeWebSocketConfiguration> configurator)
+    public static void configure(ServletContextHandler context, Configurator configurator)
     {
-        context.addEventListener(new SCIOnStartupListener(new NativeWebSocketServletContainerInitializer())
-        {
-            @Override
-            public void contextInitialized(ServletContextEvent sce)
-            {
-                super.contextInitialized(sce);
-                ServletContext servletContext = sce.getServletContext();
-                NativeWebSocketConfiguration configuration = (NativeWebSocketConfiguration)servletContext.getAttribute(ATTR_KEY);
-                configurator.accept(servletContext, configuration);
-            }
-        });
+        context.addEventListener(
+            ContainerInitializer
+                .asContextListener(new NativeWebSocketServletContainerInitializer())
+                .setInitConsumer((servletContext) ->
+                {
+                    NativeWebSocketConfiguration configuration = (NativeWebSocketConfiguration)servletContext.getAttribute(ATTR_KEY);
+                    configurator.accept(servletContext, configuration);
+                }));
     }
 
     /**
@@ -96,10 +95,10 @@ public class NativeWebSocketServletContainerInitializer implements ServletContai
      *
      * @param context the context to work with
      * @return the default {@link NativeWebSocketConfiguration}
-     * @deprecated use {@link #configure(ServletContextHandler, BiConsumer)} instead
      * @see #initialize(ServletContext)
      * @see #configure(ServletContextHandler)
-     * @see #configure(ServletContextHandler, BiConsumer)
+     * @see #configure(ServletContextHandler, Configurator)
+     * @deprecated use {@link #configure(ServletContextHandler, Configurator)} instead
      */
     @Deprecated
     public static NativeWebSocketConfiguration getDefaultFrom(ServletContext context)
