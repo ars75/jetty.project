@@ -52,9 +52,9 @@ public final class ContainerInitializer
      *
      * @param sci the {@link ServletContainerInitializer} to call
      * @return the {@link ServletContextListener} wrapping the SCI
-     * @see {@link SCIAsContextListener#addClasses(Class[])}
-     * @see {@link SCIAsContextListener#addClasses(String...)}
-     * @see {@link SCIAsContextListener#setClassLoader(ClassLoader)}
+     * @see SCIAsContextListener#addClasses(Class[])
+     * @see SCIAsContextListener#addClasses(String...)
+     * @see SCIAsContextListener#setClassLoader(ClassLoader)
      */
     public static SCIAsContextListener asContextListener(ServletContainerInitializer sci)
     {
