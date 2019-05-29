@@ -249,6 +249,11 @@ public class WebSocketServerContainerInitializer implements ServletContainerInit
      */
     public static void configure(ServletContextHandler context, Configurator configurator)
     {
+        // In this embedded-jetty usage, allow ServletContext.addListener() to
+        // add other ServletContextListeners (such as the ContextDestroyListener) after
+        // the initialization phase is over. (important for this SCI to function)
+        context.getServletContext().setExtendedListenerTypes(true);
+
         context.addEventListener(
             ContainerInitializer.asContextListener(new WebSocketServerContainerInitializer())
                 .setInitConsumer((servletContext) ->

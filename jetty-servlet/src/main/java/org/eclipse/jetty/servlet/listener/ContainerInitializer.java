@@ -106,8 +106,10 @@ public final class ContainerInitializer
         public void contextInitialized(ServletContextEvent sce)
         {
             ServletContext servletContext = sce.getServletContext();
+            ClassLoader original = Thread.currentThread().getContextClassLoader();
             try
             {
+                Thread.currentThread().setContextClassLoader(sce.getClass().getClassLoader());
                 sci.onStartup(getClasses(), servletContext);
                 if (initConsumer != null)
                 {
@@ -121,6 +123,10 @@ public final class ContainerInitializer
             catch (Throwable cause)
             {
                 throw new RuntimeException(cause);
+            }
+            finally
+            {
+                Thread.currentThread().setContextClassLoader(original);
             }
         }
 
