@@ -23,9 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.eclipse.jetty.util.log.Log;
-import org.eclipse.jetty.util.log.Logger;
-
 /** Fast String Utilities.
  *
  * These string utilities provide both convenience methods and
@@ -37,9 +34,10 @@ import org.eclipse.jetty.util.log.Logger;
  */
 public class StringUtil
 {
-    private static final Logger LOG = Log.getLogger(StringUtil.class);
-    
-    
+    /* IMPORTANT: StringUtil cannot use a Jetty Logger.
+     *            This is because the Jetty Loggers use StringUtil.
+     */
+
     private final static Trie<String> CHARSETS= new ArrayTrie<>(256);
     
     public static final String ALL_INTERFACES="0.0.0.0";
@@ -592,7 +590,6 @@ public class StringUtil
         }
         catch(Exception e)
         {
-            LOG.warn(e);
             return s.getBytes();
         }
     }

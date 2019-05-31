@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -101,11 +102,25 @@ public class LogTest
     public static Stream<Arguments> packageCases()
     {
         return Stream.of(
-                Arguments.of(null, ""),
-                Arguments.of("org.eclipse.Foo.\u0000", "oe.Foo"),
-                Arguments.of(".foo", "foo"),
-                Arguments.of(".bar.Foo", "b.Foo"),
-                Arguments.of("org...bar..Foo", "ob.Foo")
+            // null entry
+            Arguments.of(null, ""),
+            // empty entry
+            Arguments.of("", ""),
+            // all whitespace entry
+            Arguments.of("  \t  ", ""),
+            // bad / invalid characters
+            Arguments.of("org.eclipse.Foo.\u0000", "oe.Foo"),
+            Arguments.of("org.eclipse.\u20ac.Euro", "oe\u20ac.Euro"),
+            // bad package segments
+            Arguments.of(".foo", "foo"),
+            Arguments.of(".bar.Foo", "b.Foo"),
+            Arguments.of("org...bar..Foo", "ob.Foo"),
+            Arguments.of("org . . . bar . . Foo ", "ob.Foo"),
+            Arguments.of("org . . . bar . . Foo ", "ob.Foo"),
+            // long-ish classname
+            Arguments.of("org.eclipse.jetty.websocket.common.extensions.compress.DeflateFrameExtension", "oejwcec.DeflateFrameExtension"),
+            // internal class
+            Arguments.of("org.eclipse.jetty.foo.Bar$Internal", "oejf.Bar$Internal")
         );
     }
     
@@ -113,8 +128,18 @@ public class LogTest
     @MethodSource("packageCases")
     public void testCondensePackage(String input, String expected)
     {
+        // Skip known testcase that doesn't support unicode java identifier names
+        Assumptions.assumeFalse(input != null && input.contains("\u20ac"));
+
         StdErrLog log = new StdErrLog();
         StdErrLog logger = (StdErrLog) log.newLogger(input);
         assertThat("log[" + input + "] condenses to name", logger._abbrevname, is(expected));
+    }
+
+    @ParameterizedTest
+    @MethodSource("packageCases")
+    public void testCondensePackageFast(String input, String expected)
+    {
+        assertThat("log[" + input + "] condenses to name", AbstractLogger.condensePackageStringFast(input), is(expected));
     }
 }

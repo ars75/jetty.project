@@ -20,6 +20,8 @@ package org.eclipse.jetty.util.log;
 
 import java.util.Properties;
 
+import org.eclipse.jetty.util.StringUtil;
+
 /* ------------------------------------------------------------ */
 /** Abstract Logger.
  * Manages the atomic registration of the logger by name.
@@ -198,14 +200,15 @@ public abstract class AbstractLogger implements Logger
      *            the fully qualified class name
      * @return the condensed name
      */
+    @SuppressWarnings("Duplicates")
     protected static String condensePackageString(String classname)
     {
-        if(classname == null || classname.isEmpty())
+        if(StringUtil.isBlank(classname))
         {
             return "";
         }
         // strip non-allowed character
-        String allowed = classname.replaceAll("[^\\w.]", "");
+        String allowed = classname.replaceAll("[^\\w$_.]", "");
         int len = allowed.length();
         // find end of classname (strip empty sections. eg: "org.Foo.")
         while(allowed.charAt(--len) == '.');
@@ -227,6 +230,61 @@ public abstract class AbstractLogger implements Logger
         return dense.toString();
     }
 
+    @SuppressWarnings("Duplicates")
+    protected static String condensePackageStringFast(String classname)
+    {
+        if(classname == null || classname.isEmpty())
+        {
+            return "";
+        }
+
+        StringBuilder dense = new StringBuilder();
+        int rawLen = classname.length();
+        boolean foundStart = false;
+        boolean hasPackage = false;
+        int startIdx = -1;
+        int endIdx = -1;
+        for (int i = 0; i < rawLen; i++)
+        {
+            char c = classname.charAt(i);
+            if (!foundStart)
+            {
+                foundStart = Character.isJavaIdentifierStart(c);
+                if (foundStart)
+                {
+                    if (startIdx >= 0)
+                    {
+                        dense.append(classname.charAt(startIdx));
+                        hasPackage = true;
+                    }
+                    startIdx = i;
+                }
+            }
+
+            if (foundStart)
+            {
+                if (!Character.isJavaIdentifierPart(c))
+                {
+                    foundStart = false;
+                }
+                else
+                {
+                    endIdx = i;
+                }
+            }
+        }
+        // append remaining from startIdx
+        if ((startIdx >= 0) && (endIdx >= startIdx))
+        {
+            if (hasPackage)
+            {
+                dense.append('.');
+            }
+            dense.append(classname, startIdx, endIdx + 1);
+        }
+
+        return dense.toString();
+    }
 
     @Override
     public void debug(String msg, long arg)
